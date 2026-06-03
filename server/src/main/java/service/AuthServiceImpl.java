@@ -16,7 +16,7 @@ public class AuthServiceImpl extends UnicastRemoteObject implements AuthService 
     private UserRepository userRepository;
     private Map<String, User> sessions;
 
-    protected AuthServiceImpl() throws RemoteException {
+    public AuthServiceImpl() throws RemoteException {
         userRepository = new UserRepositoryImpl();
         sessions = new ConcurrentHashMap<>();
     }
