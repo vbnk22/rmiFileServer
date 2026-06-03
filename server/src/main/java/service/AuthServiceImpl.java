@@ -1,6 +1,6 @@
 package service;
 
-import model.User;
+import dto.UserDTO;
 import remote.AuthService;
 import repository.UserRepository;
 import repository.impl.UserRepositoryImpl;
@@ -14,21 +14,21 @@ import java.util.concurrent.ConcurrentHashMap;
 public class AuthServiceImpl extends UnicastRemoteObject implements AuthService {
 
     private UserRepository userRepository;
-    private Map<String, User> sessions;
+    private Map<String, String> sessions;
 
-    public AuthServiceImpl() throws RemoteException {
-        userRepository = new UserRepositoryImpl();
+    public AuthServiceImpl(UserRepositoryImpl userRepository) throws RemoteException {
+        this.userRepository = userRepository;
         sessions = new ConcurrentHashMap<>();
     }
 
     @Override
     public String authenticate(String username, String password) throws RemoteException {
         try {
-            User user = userRepository.findByUsername(username);
+            UserDTO user = userRepository.findByUsername(username);
             if (user != null && user.getPassword().equals(password)) {
-                userRepository.save(user);
                 String sessionId = UUID.randomUUID().toString();
-                sessions.put(sessionId, user);
+                sessions.put(sessionId, user.getUsername());
+                System.out.println("Udane logowanie " + user.getUsername());
                 return sessionId;
             }
         } catch (Exception e) {
@@ -37,7 +37,9 @@ public class AuthServiceImpl extends UnicastRemoteObject implements AuthService 
         return "";
     }
 
-    public User getUser(String sessionId) {
+    @Override
+    public String getUsername(String sessionId) throws RemoteException {
+//        return userRepository.findByUsername(sessions.get(sessionId));
         return sessions.get(sessionId);
     }
 }

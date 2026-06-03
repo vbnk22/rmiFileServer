@@ -1,13 +1,15 @@
 package service;
 
 import dto.FileInfoDTO;
+import dto.UserDTO;
 import enums.UserRole;
 import model.FileMetadata;
-import model.User;
 import remote.AuthService;
 import remote.FileService;
 import repository.FileRepository;
+import repository.UserRepository;
 import repository.impl.FileRepositoryImpl;
+import repository.impl.UserRepositoryImpl;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -20,12 +22,15 @@ import java.util.stream.Collectors;
 
 public class FileServiceImpl extends UnicastRemoteObject implements FileService {
 
-    private final FileRepository fileRepository;
-    private final AuthServiceImpl authService = new AuthServiceImpl();
+    private FileRepository fileRepository;
+    private AuthService authService;
+    private UserRepository userRepository;
 
-    public FileServiceImpl() throws RemoteException {
+    public FileServiceImpl(FileRepositoryImpl fileRepository, AuthServiceImpl authService, UserRepositoryImpl userRepository) throws RemoteException {
         super();
-        this.fileRepository = new FileRepositoryImpl();
+        this.fileRepository = fileRepository;
+        this.authService = authService;
+        this.userRepository = userRepository;
     }
 
     @Override
@@ -70,7 +75,7 @@ public class FileServiceImpl extends UnicastRemoteObject implements FileService 
 
     @Override
     public boolean deleteFile(String sessionId, String filename) throws RemoteException {
-        User user = authService.getUser(sessionId);
+        UserDTO user = userRepository.findByUsername(authService.getUsername(sessionId));
 
         if (user == null) {
             throw new SecurityException("Not logged in");

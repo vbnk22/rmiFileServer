@@ -1,18 +1,23 @@
 package repository.impl;
 
-import model.User;
+import dto.UserDTO;
 import repository.UserRepository;
 
+import java.rmi.RemoteException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.MissingResourceException;
 import java.util.NoSuchElementException;
 
 public class UserRepositoryImpl implements UserRepository {
-    List<User> users = new ArrayList<User>();
+    List<UserDTO> users;
+
+    public UserRepositoryImpl() throws RemoteException {
+        users = new ArrayList<UserDTO>();
+    }
 
     @Override
-    public void save(User user) throws MissingResourceException {
+    public void save(UserDTO user) throws MissingResourceException {
         if (!users.contains(user) && user != null) {
             users.add(user);
         } else {
@@ -21,11 +26,14 @@ public class UserRepositoryImpl implements UserRepository {
     }
 
     @Override
-    public User findByUsername(String username) {
-        if (users.contains(username)) {
-            return users.get(users.indexOf(username));
+    public UserDTO findByUsername(String username) {
+        for (UserDTO user : users) {
+            if (user.getUsername().equals(username)) {
+                return user;
+            }
+            else throw new NoSuchElementException("User cannot be found");
         }
-        else throw new NoSuchElementException("User cannot be found");
+        return null;
     }
 
     @Override
