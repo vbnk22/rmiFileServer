@@ -1,11 +1,13 @@
 package repository;
 
-import model.User;
+import dto.UserDTO;
 
+import java.rmi.Remote;
+import java.rmi.RemoteException;
 import java.util.MissingResourceException;
 
 public interface UserRepository {
-    void save(User user) throws MissingResourceException;
-    User findByUsername(String username);
+    void save(UserDTO user) throws MissingResourceException;
+    UserDTO findByUsername(String username);
     void delete(String username);
 }
