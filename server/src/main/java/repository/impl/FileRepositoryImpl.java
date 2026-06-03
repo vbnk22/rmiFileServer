@@ -7,7 +7,7 @@ import java.io.IOException;
 import java.nio.file.*;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
+import java.util.Optional;
 
 public class FileRepositoryImpl implements FileRepository {
 
@@ -25,48 +25,25 @@ public class FileRepositoryImpl implements FileRepository {
     }
 
     @Override
-    public byte[] downlaodFile(FileMetadata fileMetadata) {
-
+    public byte[] downloadFile(FileMetadata fileMetadata) {
         try {
-            Path filePath =
-                    storageDir.resolve(fileMetadata.getStoredName());
+            Path filePath = storageDir.resolve(fileMetadata.getFileStoredName());
 
             if (!Files.exists(filePath)) {
-                throw new RuntimeException(
-                        "File not found: " + fileMetadata.getStoredName()
-                );
+                throw new RuntimeException( "File not found: " + fileMetadata.getFileStoredName());
             }
 
             return Files.readAllBytes(filePath);
-
         } catch (IOException e) {
             throw new RuntimeException("Error while downloading file", e);
         }
     }
 
     @Override
-    public FileMetadata uploadFile(byte[] fileContent) {
-
+    public void uploadFile(FileMetadata fileMetadata) {
         try {
-            String id = UUID.randomUUID().toString();
-            String storedName = id;
-
-            Path filePath = storageDir.resolve(storedName);
-
-            Files.write(filePath, fileContent);
-
-            FileMetadata metadata = new FileMetadata();
-            metadata.setId(id);
-            metadata.setStoredName(storedName);
-            metadata.setOriginalName("unknown");
-            metadata.setContentType("application/octet-stream");
-            metadata.setSize(fileContent.length);
-
-            files.add(metadata);
-
-            return metadata;
-
-        } catch (IOException e) {
+            files.add(fileMetadata);
+        } catch (Exception e) {
             throw new RuntimeException("Error while uploading file", e);
         }
     }
@@ -74,5 +51,18 @@ public class FileRepositoryImpl implements FileRepository {
     @Override
     public List<FileMetadata> listFiles() {
         return files;
+    }
+
+    @Override
+    public Optional<FileMetadata> findFileByName(String fileName) {
+        return files
+                .stream()
+                .filter(file -> file.getFileName().equals(fileName))
+                .findFirst();
+    }
+
+    @Override
+    public void deleteFile(String fileName) {
+        files.removeIf(file -> file.getFileName().equals(fileName));
     }
 }

@@ -2,59 +2,47 @@ package model;
 
 public class FileMetadata {
 
-    private String id;
-    private String originalName;
-    private String storedName;
-    private String contentType;
-    private long size;
+    private String fileName;
+    private String fileStoredName;
+    private String filePath;
+    private byte[] fileData;
 
-    public FileMetadata() {}
-
-    public FileMetadata(String id, String originalName, String storedName, String contentType, long size) {
-        this.id = id;
-        this.originalName = originalName;
-        this.storedName = storedName;
-        this.contentType = contentType;
-        this.size = size;
+    public FileMetadata(String fileName, String fileStoredName, String filePath, byte[] fileData) {
+        this.fileName = fileName;
+        this.fileStoredName = fileStoredName;
+        this.filePath = filePath;
+        this.fileData = fileData;
     }
 
-    public String getId() {
-        return id;
+    public String getFileStoredName() {
+        return fileStoredName;
     }
 
-    public String getOriginalName() {
-        return originalName;
+    public String getFileName() {
+        return fileName;
     }
 
-    public String getStoredName() {
-        return storedName;
+    public String getFilePath() {
+        return filePath;
     }
 
-    public String getContentType() {
-        return contentType;
+    public byte[] getFileData() {
+        return fileData;
     }
 
-    public long getSize() {
-        return size;
+    public void setFileStoredName(String fileStoredName) {
+        this.fileStoredName = fileStoredName;
     }
 
-    public void setId(String id) {
-        this.id = id;
+    public void setFileName(String fileName) {
+        this.fileName = fileName;
     }
 
-    public void setOriginalName(String originalName) {
-        this.originalName = originalName;
+    public void setFilePath(String filePath) {
+        this.filePath = filePath;
     }
 
-    public void setStoredName(String storedName) {
-        this.storedName = storedName;
-    }
-
-    public void setContentType(String contentType) {
-        this.contentType = contentType;
-    }
-
-    public void setSize(long size) {
-        this.size = size;
+    public void setFileData(byte[] fileData) {
+        this.fileData = fileData;
     }
 }
