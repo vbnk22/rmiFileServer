@@ -1,6 +1,7 @@
 package service;
 
 import dto.UserDTO;
+import enums.UserRole;
 import remote.AuthService;
 import repository.UserRepository;
 import repository.impl.UserRepositoryImpl;
@@ -13,33 +14,37 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class AuthServiceImpl extends UnicastRemoteObject implements AuthService {
 
-    private UserRepository userRepository;
-    private Map<String, String> sessions;
+    private final UserRepository userRepository;
+    // sessionId -> username
+    private final Map<String, String> sessions = new ConcurrentHashMap<>();
+    // sessionId -> role
+    private final Map<String, UserRole> sessionRoles = new ConcurrentHashMap<>();
 
     public AuthServiceImpl(UserRepositoryImpl userRepository) throws RemoteException {
         this.userRepository = userRepository;
-        sessions = new ConcurrentHashMap<>();
     }
 
     @Override
     public String authenticate(String username, String password) throws RemoteException {
-        try {
-            UserDTO user = userRepository.findByUsername(username);
-            if (user != null && user.getPassword().equals(password)) {
-                String sessionId = UUID.randomUUID().toString();
-                sessions.put(sessionId, user.getUsername());
-                System.out.println("Udane logowanie " + user.getUsername());
-                return sessionId;
-            }
-        } catch (Exception e) {
-            throw new RuntimeException(e);
+        UserDTO user = userRepository.findByUsername(username);
+        if (user != null && user.getPassword().equals(password)) {
+            String sessionId = UUID.randomUUID().toString();
+            sessions.put(sessionId, user.getUsername());
+            sessionRoles.put(sessionId, user.getRole());
+            System.out.println("[Auth] Zalogowano: " + user.getUsername() + " [" + user.getRole() + "]");
+            return sessionId;
         }
+        System.out.println("[Auth] Nieudane logowanie dla: " + username);
         return "";
     }
 
     @Override
     public String getUsername(String sessionId) throws RemoteException {
-//        return userRepository.findByUsername(sessions.get(sessionId));
         return sessions.get(sessionId);
+    }
+
+    @Override
+    public UserRole getRole(String sessionId) throws RemoteException {
+        return sessionRoles.get(sessionId);
     }
 }

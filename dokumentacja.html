@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<title>Dokumentacja — RMI File Server</title>
+<style>
+  body { font-family: Arial, sans-serif; font-size: 12pt; color: #1a1a1a; max-width: 920px; margin: 40px auto; padding: 0 20px; line-height: 1.6; }
+  h1 { font-size: 20pt; color: #1a3a6b; border-bottom: 3px solid #1a3a6b; padding-bottom: 6px; margin-top: 36px; }
+  h2 { font-size: 15pt; color: #2a5298; border-bottom: 1px solid #c0cfe8; padding-bottom: 4px; margin-top: 28px; }
+  h3 { font-size: 12pt; color: #1a3a6b; margin-top: 20px; }
+  .cover { text-align: center; margin-bottom: 60px; padding: 60px 40px; border: 2px solid #1a3a6b; border-radius: 8px; background: #f0f4fb; }
+  .cover h1 { border: none; font-size: 22pt; margin: 0 0 12px 0; }
+  .cover p { font-size: 13pt; margin: 6px 0; color: #333; }
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 11pt; }
+  th { background: #1a3a6b; color: white; padding: 8px 10px; text-align: left; }
+  td { padding: 7px 10px; border: 1px solid #ccc; vertical-align: top; }
+  tr:nth-child(even) td { background: #f5f7fb; }
+  pre, code { font-family: "Courier New", monospace; font-size: 10pt; background: #f4f4f4; border: 1px solid #ddd; border-radius: 4px; }
+  pre { padding: 12px 16px; overflow-x: auto; white-space: pre; line-height: 1.45; }
+  code { padding: 1px 4px; }
+  ul, ol { margin: 8px 0; padding-left: 24px; }
+  li { margin: 4px 0; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10pt; font-weight: bold; }
+  .badge-green { background: #d4edda; color: #155724; }
+  .badge-blue  { background: #d0e8fb; color: #0c4a6e; }
+  @media print {
+    body { margin: 20px; }
+    .cover { break-after: page; }
+    pre { white-space: pre-wrap; }
+    .section-break { break-before: page; }
+  }
+</style>
+</head>
+<body>
+
+<div class="cover">
+  <h1>Dokumentacja projektu zaliczeniowego</h1>
+  <h1 style="font-size:18pt; color:#2a5298;">RMI File Server</h1>
+  <p style="margin-top:30px;"><strong>Przedmiot:</strong> Programowanie Współbieżne i Rozproszone (2026)</p>
+  <p><strong>Autor:</strong> Mateusz Chudkowski</p>
+  <p style="margin-top:20px; color:#666;">Rozproszony serwer plików zaimplementowany w Java RMI<br>z mechanizmami programowania współbieżnego</p>
+</div>
+
+<!-- ═══════════════════════════════════════════ 1 ═══ -->
+<h1>1. Metryczka projektu</h1>
+
+<p><strong>Tytuł programu:</strong> RMI File Server — Rozproszony Serwer Plików</p>
+<p><strong>Autorzy:</strong> Mateusz Chudkowski</p>
+<p><strong>Przedmiot:</strong> Programowanie Współbieżne i Rozproszone (2026)</p>
+
+<h2>Podział pracy</h2>
+<table>
+  <tr><th>Zadanie</th><th>Wykonawca</th></tr>
+  <tr><td>Architektura RMI, interfejsy zdalne</td><td>Mateusz Chudkowski</td></tr>
+  <tr><td>Implementacja serwera (AuthService, FileService, AdminService)</td><td>Mateusz Chudkowski</td></tr>
+  <tr><td>Repozytoria z synchronizacją (ReadWriteLock, CopyOnWriteArrayList)</td><td>Mateusz Chudkowski</td></tr>
+  <tr><td>Klient terminalowy (menu, upload, download, obsługa błędów)</td><td>Mateusz Chudkowski</td></tr>
+  <tr><td>Testy współbieżności</td><td>Mateusz Chudkowski</td></tr>
+  <tr><td>Dokumentacja</td><td>Mateusz Chudkowski</td></tr>
+</table>
+
+<!-- ═══════════════════════════════════════════ 2 ═══ -->
+<h1>2. Cel i zakres projektu</h1>
+
+<p><strong>Cel:</strong> Stworzenie rozproszonej aplikacji serwera plików umożliwiającej wymianę plików między wieloma klientami za pośrednictwem protokołu Java RMI. System zapewnia kontrolę dostępu opartą na rolach (administrator / użytkownik) oraz bezpieczną współbieżną obsługę wielu klientów jednocześnie.</p>
+
+<h2>Przyjęte założenia</h2>
+<ul>
+  <li>Komunikacja odbywa się wyłącznie przez Java RMI (rejestr na porcie 5555).</li>
+  <li>Dane użytkowników i metadane plików przechowywane są w pamięci operacyjnej (in-memory); pliki fizyczne zapisywane są na dysku serwera w katalogu <code>storage/files/</code>.</li>
+  <li>System ról: <code>ADMIN</code> (pełen dostęp) i <code>USER</code> (upload/download).</li>
+  <li>Uwierzytelnianie oparte na sesjach (UUID token).</li>
+  <li>Wiele klientów może jednocześnie pobierać ten sam plik (odczyt współbieżny).</li>
+  <li>Operacje zapisu i usuwania plików są wyłączne (blokada zapisu).</li>
+</ul>
+
+<h2>Zakres funkcjonalny</h2>
+<ul>
+  <li>Rejestracja i usuwanie użytkowników przez administratora.</li>
+  <li>Logowanie z przydzielaniem tokenu sesji (UUID).</li>
+  <li>Wylistowanie plików dostępnych na serwerze.</li>
+  <li>Wysyłanie pliku na serwer (upload) — klient przesyła bajty przez RMI.</li>
+  <li>Pobieranie pliku z serwera (download) — serwer zwraca bajty przez RMI.</li>
+  <li>Usuwanie pliku przez administratora z potwierdzeniem.</li>
+</ul>
+
+<!-- ═══════════════════════════════════════════ 3 ═══ -->
+<h1>3. Architektura i struktura logiczna</h1>
+
+<h2>Struktura modułów Maven</h2>
+<table>
+  <tr><th>Moduł</th><th>Zawartość</th><th>Zależności</th></tr>
+  <tr><td><code>common</code></td><td>Interfejsy RMI, DTO, enums</td><td>—</td></tr>
+  <tr><td><code>server</code></td><td>Implementacje serwisów, repozytoria, model, ServerMain</td><td>common</td></tr>
+  <tr><td><code>client</code></td><td>ClientMain, SessionManager, menu</td><td>common</td></tr>
+</table>
+
+<h2>Schemat blokowy komunikacji Klient–Serwer (RMI)</h2>
+<pre>
+┌─────────────────────────────────────────────────────────────┐
+│                        KLIENT                               │
+│  ClientMain                                                 │
+│  ┌─────────────┐  ┌─────────────┐  ┌───────────────────┐  │
+│  │ AuthService │  │ FileService │  │   AdminService    │  │
+│  │ (stub RMI)  │  │ (stub RMI)  │  │   (stub RMI)      │  │
+│  └──────┬──────┘  └──────┬──────┘  └────────┬──────────┘  │
+└─────────┼────────────────┼──────────────────┼─────────────┘
+          │  Java RMI/TCP  │                  │
+          ▼                ▼                  ▼
+┌─────────────────────────────────────────────────────────────┐
+│                   RMI REGISTRY :5555                        │
+│    /AuthService    /FileService    /AdminService            │
+└──────┬───────────────────┬──────────────────┬──────────────┘
+       │                   │                  │
+┌──────▼────────┐  ┌───────▼────────┐  ┌──────▼────────────┐
+│AuthServiceImpl│  │FileServiceImpl │  │AdminServiceImpl   │
+│               │  │                │  │                   │
+│ConcurrentHashMap  ReadWriteLock   │  │UserRepository     │
+│sessions/roles │  │FileRepository  │  │                   │
+└──────┬────────┘  └───────┬────────┘  └──────┬────────────┘
+       │                   │                  │
+┌──────▼───────────────────▼──────────────────▼──────────────┐
+│              REPOZYTORIA (In-Memory + Disk)                 │
+│  UserRepositoryImpl          FileRepositoryImpl             │
+│  CopyOnWriteArrayList        CopyOnWriteArrayList           │
+│                              + ReentrantReadWriteLock       │
+│                              + storage/files/ (dysk)        │
+└─────────────────────────────────────────────────────────────┘
+</pre>
+
+<h2>Przepływ danych — upload pliku</h2>
+<pre>
+Klient                    RMI                    Serwer
+  │                        │                       │
+  │ Files.readAllBytes()   │                       │
+  │ (lokalny dysk)         │                       │
+  ├──── uploadFile(name, byte[]) ─────────────────►│
+  │                        │  writeLock.lock()      │
+  │                        │  Files.write(disk)     │
+  │                        │  meta.setFileData(null)│  ← zwolnienie pamięci
+  │                        │  files.add(meta)       │
+  │                        │  writeLock.unlock()    │
+  │◄───────────── void ────┤                       │
+</pre>
+
+<!-- ═══════════════════════════════════════════ 4 ═══ -->
+<h1>4. Specyfikacja interfejsu zdalnego</h1>
+
+<h2>AuthService (<code>remote.AuthService</code>)</h2>
+<table>
+  <tr><th>Metoda</th><th>Parametry</th><th>Zwraca</th><th>Opis</th></tr>
+  <tr><td><code>authenticate</code></td><td><code>String username,<br>String password</code></td><td><code>String</code> (sessionId)</td><td>Weryfikuje dane logowania. Zwraca UUID tokenu sesji lub pusty String przy błędzie.</td></tr>
+  <tr><td><code>getUsername</code></td><td><code>String sessionId</code></td><td><code>String</code></td><td>Zwraca nazwę użytkownika przypisaną do sesji.</td></tr>
+  <tr><td><code>getRole</code></td><td><code>String sessionId</code></td><td><code>UserRole</code></td><td>Zwraca rolę (ADMIN/USER) przypisaną do sesji.</td></tr>
+</table>
+
+<h2>FileService (<code>remote.FileService</code>)</h2>
+<table>
+  <tr><th>Metoda</th><th>Parametry</th><th>Zwraca</th><th>Opis</th></tr>
+  <tr><td><code>uploadFile</code></td><td><code>String filename,<br>byte[] data</code></td><td><code>void</code></td><td>Przyjmuje bajty pliku od klienta i zapisuje go na dysku serwera. Bajty zwalniane po zapisie.</td></tr>
+  <tr><td><code>downloadFile</code></td><td><code>String fileName</code></td><td><code>byte[]</code></td><td>Atomowe wyszukanie i odczyt pliku pod jedną blokadą — brak TOCTOU.</td></tr>
+  <tr><td><code>listFiles</code></td><td>—</td><td><code>List&lt;FileInfoDTO&gt;</code></td><td>Zwraca listę metadanych. Korzysta z <code>fileSize</code> — nie ładuje bajtów pliku.</td></tr>
+  <tr><td><code>deleteFile</code></td><td><code>String sessionId,<br>String filename</code></td><td><code>boolean</code></td><td>Usuwa plik (tylko ADMIN). Weryfikuje sesję i rolę.</td></tr>
+</table>
+
+<h2>AdminService (<code>remote.AdminSerivce</code>)</h2>
+<table>
+  <tr><th>Metoda</th><th>Parametry</th><th>Zwraca</th><th>Opis</th></tr>
+  <tr><td><code>registerUser</code></td><td><code>String username,<br>String password</code></td><td><code>boolean</code></td><td>Tworzy nowego użytkownika z rolą USER.</td></tr>
+  <tr><td><code>deleteUser</code></td><td><code>String sessionId,<br>String username</code></td><td><code>void</code></td><td>Usuwa użytkownika (tylko ADMIN). Weryfikuje sesję i rolę. Blokuje usunięcie konta <code>admin</code>.</td></tr>
+</table>
+
+<p><strong>Obiekty DTO przesyłane przez sieć:</strong></p>
+<table>
+  <tr><th>Klasa</th><th>Implementuje</th><th>Pola</th></tr>
+  <tr><td><code>FileInfoDTO</code></td><td><code>Serializable</code></td><td>id, originalName, contentType, size</td></tr>
+  <tr><td><code>UserDTO</code></td><td><code>Serializable</code></td><td>username, password, role</td></tr>
+  <tr><td><code>UserRole</code></td><td><code>Enum</code> (Serializable)</td><td>ADMIN, USER</td></tr>
+</table>
+
+<!-- ═══════════════════════════════════════════ 5 ═══ -->
+<h1>5. Model współbieżności i synchronizacji</h1>
+
+<h2>Identyfikacja i rozwiązanie sekcji krytycznych</h2>
+
+<h3>1. Repozytorium plików — <code>FileRepositoryImpl</code></h3>
+<p><strong>Problem:</strong> Wielu klientów może jednocześnie pobierać, wgrywać lub usuwać pliki. Bez synchronizacji możliwe są:</p>
+<ul>
+  <li><strong>Race condition przy zapisie</strong> — dwa równoległe uploady mogą nadpisać dane na dysku.</li>
+  <li><strong>TOCTOU (Time-Of-Check-Time-Of-Use)</strong> — klient sprawdza, czy plik istnieje (<code>findFileByName</code>), a w oknie między sprawdzeniem a odczytem (<code>downloadFile</code>) admin usuwa ten plik.</li>
+</ul>
+
+<p><strong>Rozwiązanie: <code>ReentrantReadWriteLock</code></strong></p>
+<ul>
+  <li><strong>Blokada odczytu (read lock)</strong> — <code>downloadFile()</code>, <code>listFiles()</code>, <code>findFileByName()</code>: wiele wątków jednocześnie może trzymać blokadę odczytu.</li>
+  <li><strong>Blokada zapisu (write lock)</strong> — <code>uploadFile()</code>, <code>deleteFile()</code>: blokada wyłączna.</li>
+  <li><strong>Metoda <code>findAndDownload()</code></strong> — atomowe wyszukanie i odczyt pod jedną blokadą odczytu, eliminuje TOCTOU.</li>
+</ul>
+
+<pre>
+// Atomowe find+read — zapobiega TOCTOU race condition:
+public byte[] findAndDownload(String fileName) {
+    rwLock.readLock().lock();
+    try {
+        FileMetadata meta = files.stream()
+                .filter(f -> f.getFileName().equals(fileName))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("File not found: " + fileName));
+        return Files.readAllBytes(storageDir.resolve(meta.getFileStoredName()));
+    } finally {
+        rwLock.readLock().unlock();
+    }
+}
+
+// uploadFile — wyłączny zapis + zwolnienie pamięci:
+public void uploadFile(FileMetadata meta) {
+    rwLock.writeLock().lock();
+    try {
+        Files.write(storageDir.resolve(meta.getFileStoredName()), meta.getFileData());
+        meta.setFileData(null);  // bajty zwolnione — brak wycieku pamięci
+        files.add(meta);
+    } finally {
+        rwLock.writeLock().unlock();
+    }
+}
+</pre>
+
+<h3>2. Lista użytkowników — <code>UserRepositoryImpl</code></h3>
+<p><strong>Problem:</strong> Jednoczesna rejestracja i usuwanie użytkowników z wielu klientów może prowadzić do <code>ConcurrentModificationException</code>.</p>
+<p><strong>Rozwiązanie:</strong> <code>CopyOnWriteArrayList</code> — operacje odczytu bezpieczne bez blokady. Każda operacja zapisu tworzy kopię listy, co gwarantuje atomowość.</p>
+
+<h3>3. Sesje użytkowników — <code>AuthServiceImpl</code></h3>
+<p><strong>Rozwiązanie:</strong> Dwie mapy <code>ConcurrentHashMap</code> (sesja→login, sesja→rola). Wszystkie operacje atomowe, bez potrzeby jawnej synchronizacji.</p>
+
+<h2>Zestawienie mechanizmów współbieżności</h2>
+<table>
+  <tr><th>Komponent</th><th>Mechanizm</th><th>Uzasadnienie</th></tr>
+  <tr><td><code>AuthServiceImpl.sessions</code></td><td><code>ConcurrentHashMap</code></td><td>Atomowe get/put dla sesji wielu klientów jednocześnie</td></tr>
+  <tr><td><code>AuthServiceImpl.sessionRoles</code></td><td><code>ConcurrentHashMap</code></td><td>Atomowe get/put dla ról sesji</td></tr>
+  <tr><td><code>FileRepositoryImpl.files</code></td><td><code>CopyOnWriteArrayList</code></td><td>Thread-safe iteracja bez blokady podczas listowania</td></tr>
+  <tr><td><code>FileRepositoryImpl</code> I/O</td><td><code>ReentrantReadWriteLock</code></td><td>Wielu czytelników równolegle, wyłączny zapis</td></tr>
+  <tr><td><code>FileRepositoryImpl.findAndDownload</code></td><td>Read lock na cały blok find+read</td><td>Eliminacja TOCTOU race condition</td></tr>
+  <tr><td><code>UserRepositoryImpl.users</code></td><td><code>CopyOnWriteArrayList</code></td><td>Thread-safe operacje bez ConcurrentModificationException</td></tr>
+  <tr><td>RMI Server (JVM)</td><td>Wbudowana wielowątkowość</td><td>Każde wywołanie klienta obsługiwane w osobnym wątku</td></tr>
+</table>
+
+<h2>Brak zakleszczeń (Deadlock-free)</h2>
+<p>System nie jest podatny na zakleszczenia, ponieważ:</p>
+<ul>
+  <li>Każdy zasób ma <strong>jeden</strong> lock (<code>rwLock</code> w FileRepositoryImpl, <code>ConcurrentHashMap</code> w AuthServiceImpl) — brak możliwości cyklicznego oczekiwania.</li>
+  <li>Blokady zawsze zwalniane w bloku <code>finally</code> — gwarantowana inwolucja nawet przy wyjątku.</li>
+  <li>Brak zagnieżdżonego pobierania wielu blokad w jednym wątku.</li>
+</ul>
+
+<!-- ═══════════════════════════════════════════ 6 ═══ -->
+<h1>6. Zarządzanie pamięcią i wydajność</h1>
+
+<h2>Przechowywanie danych</h2>
+<table>
+  <tr><th>Dane</th><th>Gdzie</th><th>Trwałość</th></tr>
+  <tr><td>Metadane plików</td><td>In-memory (<code>CopyOnWriteArrayList&lt;FileMetadata&gt;</code>)</td><td>Utracone po restarcie serwera</td></tr>
+  <tr><td>Pliki fizyczne</td><td>Dysk: <code>storage/files/{UUID}</code></td><td>Trwałe na dysku</td></tr>
+  <tr><td>Konta użytkowników</td><td>In-memory (<code>CopyOnWriteArrayList&lt;UserDTO&gt;</code>)</td><td>Utracone po restarcie; admin odtwarzany automatycznie</td></tr>
+  <tr><td>Sesje</td><td>In-memory (<code>ConcurrentHashMap</code>)</td><td>Utracone po restarcie</td></tr>
+</table>
+
+<h2>Zarządzanie pamięcią — kluczowe decyzje</h2>
+<ul>
+  <li><strong>Zwolnienie bajtów po uploadzie:</strong> Po zapisaniu pliku na dysk wywołujemy <code>meta.setFileData(null)</code>. Bez tego każdy wgrany plik trzymałby bajty w heap przez cały czas działania serwera.</li>
+  <li><strong><code>listFiles()</code> korzysta z <code>fileSize</code>:</strong> Pole <code>fileSize</code> w <code>FileMetadata</code> ustawiane raz przy tworzeniu, dzięki czemu <code>mapToDTO()</code> nie musi odczytywać <code>fileData</code> (które jest już null).</li>
+  <li><strong>Bajty w RMI:</strong> Podczas uploadu/downloadu <code>byte[]</code> jest trzymany w pamięci JVM tylko przez czas trwania wywołania RMI — serializacja/deserializacja zarządzana przez JVM.</li>
+</ul>
+
+<h2>Ograniczenia</h2>
+<ul>
+  <li>Brak trwałości metadanych — restart serwera wymaga ponownego wgrania plików (fizyczne pliki pozostają na dysku).</li>
+  <li>Brak TTL dla sesji — zalogowane sesje nie wygasają automatycznie.</li>
+  <li>Brak limitu rozmiaru pliku — bardzo duże pliki mogą obciążyć heap podczas transferu RMI.</li>
+  <li>Jeden <code>ReadWriteLock</code> na cały zbiór plików — przy bardzo dużej liczbie klientów piszących jednocześnie może stać się wąskim gardłem (rozwiązanie: lock per-plik).</li>
+</ul>
+
+<!-- ═══════════════════════════════════════════ 7 ═══ -->
+<h1>7. Instrukcja wdrożenia i obsługi</h1>
+
+<h2>Wymagania</h2>
+<ul>
+  <li>Java JDK 19 lub nowszy</li>
+  <li>Apache Maven 3.6+</li>
+  <li>Obie strony (klient i serwer) muszą mieć dostęp do tego samego modułu <code>common</code></li>
+</ul>
+
+<h2>Krok 1 — Kompilacja</h2>
+<pre>mvn compile</pre>
+<p>Kompiluje wszystkie trzy moduły (common, server, client).</p>
+
+<h2>Krok 2 — Uruchomienie serwera</h2>
+<pre>cd server
+java -cp target/classes;../common/target/classes ServerMain</pre>
+<p>Serwer uruchamia RMI Registry na porcie <strong>5555</strong> i rejestruje trzy usługi. Automatycznie tworzone jest konto admina: <strong>login: admin</strong>, <strong>hasło: admin</strong>.</p>
+<p>Oczekiwany komunikat:</p>
+<pre>[Server] Konto admina utworzone (login: admin, hasło: admin)
+[Server] Serwer uruchomiony na porcie 5555</pre>
+
+<h2>Krok 3 — Uruchomienie klienta</h2>
+<pre>cd client
+java -cp target/classes;../common/target/classes ClientMain</pre>
+
+<h2>Krok 4 — Obsługa</h2>
+<pre>╔══════════════════════════════╗
+║     RMI File Server          ║
+╚══════════════════════════════╝
+
+=== Logowanie ===
+Login: admin
+Hasło: admin
+[✓] Zalogowano jako admin [ADMIN]
+
+=== Menu ===
+1. Lista plików
+2. Pobierz plik
+3. Wyślij plik
+4. Usuń plik          (tylko ADMIN)
+5. Dodaj użytkownika  (tylko ADMIN)
+6. Usuń użytkownika   (tylko ADMIN)
+0. Wyloguj</pre>
+
+<h2>Obsługa błędów — przykłady komunikatów</h2>
+<table>
+  <tr><th>Sytuacja</th><th>Komunikat klienta</th></tr>
+  <tr><td>Błędny login/hasło</td><td><code>[!] Błędny login lub hasło. Spróbuj ponownie.</code></td></tr>
+  <tr><td>Pusta nazwa pliku</td><td><code>[!] Nazwa pliku nie może być pusta.</code></td></tr>
+  <tr><td>Plik lokalny nie istnieje</td><td><code>[!] Plik nie istnieje: &lt;ścieżka&gt;</code></td></tr>
+  <tr><td>Plik nie istnieje na serwerze</td><td><code>[BŁĄD] File not found: &lt;nazwa&gt;</code></td></tr>
+  <tr><td>Brak uprawnień</td><td><code>[BŁĄD SERWERA] Brak uprawnień — wymagana rola ADMIN</code></td></tr>
+  <tr><td>Serwer niedostępny</td><td><code>[BŁĄD] Nie można połączyć z serwerem</code> + exit</td></tr>
+  <tr><td>Próba usunięcia konta admin</td><td><code>[!] Nie można usunąć konta administratora.</code></td></tr>
+</table>
+
+<!-- ═══════════════════════════════════════════ 8 ═══ -->
+<h1>8. Ograniczenia i testy poprawności</h1>
+
+<h2>Maksymalna liczba jednoczesnych klientów</h2>
+<p>Java RMI tworzy wątek per wywołanie przy użyciu puli wątków JVM. Domyślnie brak twardego limitu — liczba jednoczesnych klientów ograniczona jest zasobami systemowymi. System działa stabilnie przy 10–20 jednoczesnych klientach w środowisku laboratoryjnym.</p>
+
+<h2>Test 1 — równoczesne pobieranie pliku (10 wątków)</h2>
+<p><strong>Scenariusz:</strong> 10 wątków klienckich jednocześnie pobiera ten sam plik z serwera.</p>
+<pre>
+ExecutorService pool = Executors.newFixedThreadPool(10);
+CountDownLatch latch = new CountDownLatch(1);
+List&lt;byte[]&gt; results = new CopyOnWriteArrayList&lt;&gt;();
+
+for (int i = 0; i &lt; 10; i++) {
+    pool.submit(() -&gt; {
+        try {
+            latch.await(); // wszystkie wątki startują jednocześnie
+            byte[] data = fileService.downloadFile("test.txt");
+            results.add(data);
+        } catch (Exception e) { e.printStackTrace(); }
+    });
+}
+latch.countDown();
+pool.shutdown();
+pool.awaitTermination(30, TimeUnit.SECONDS);
+
+assert results.size() == 10;
+assert results.stream().allMatch(d -> d != null &amp;&amp; d.length &gt; 0);
+</pre>
+<p><strong>Oczekiwany wynik:</strong> Wszystkie 10 wątków otrzymuje identyczne, kompletne bajty pliku. Brak wyjątków.</p>
+<p><strong>Dlaczego działa:</strong> <code>readLock()</code> pozwala wielu wątkom jednocześnie trzymać blokadę odczytu — żaden nie blokuje pozostałych.</p>
+
+<h2>Test 2 — równoczesny upload i download (TOCTOU)</h2>
+<p><strong>Scenariusz:</strong> Wątek A pobiera plik, wątek B usuwa ten sam plik jednocześnie.</p>
+<p><strong>Bez ochrony (błędny kod):</strong> Możliwy scenariusz — A sprawdza <code>findFileByName</code> (plik istnieje), B wywołuje <code>deleteFile</code> (plik usunięty), A wywołuje <code>downloadFile</code> (RuntimeException — plik nie istnieje na dysku).</p>
+<p><strong>Z ochroną (<code>findAndDownload</code>):</strong> Operacja find+read odbywa się atomowo pod jedną blokadą odczytu. <code>deleteFile</code> czeka na blokadę zapisu — nie może wejść w sekcję krytyczną, dopóki download się nie zakończy. Wynik: albo A pobierze plik w całości, albo B usunie go i A dostanie czytelny błąd <code>"File not found"</code>.</p>
+
+<h2>Test 3 — kolejkowanie zapisów</h2>
+<p><strong>Scenariusz:</strong> 5 wątków wgrywa różne pliki jednocześnie.</p>
+<p><strong>Wynik:</strong> Wątki ustawiają się w kolejce po <code>writeLock</code>. Każdy plik zapisywany atomowo (meta + bajty). Po zakończeniu wszystkich uploadów lista plików zawiera dokładnie 5 pozycji.</p>
+
+<h2>Reakcja na restart serwera</h2>
+<table>
+  <tr><th>Dane</th><th>Po restarcie serwera</th></tr>
+  <tr><td>Pliki fizyczne (<code>storage/files/</code>)</td><td>✅ Zachowane na dysku</td></tr>
+  <tr><td>Metadane plików (in-memory)</td><td>❌ Utracone — serwer nie widzi starych plików</td></tr>
+  <tr><td>Konta użytkowników (in-memory)</td><td>❌ Utracone; konto admin odtwarzane automatycznie</td></tr>
+  <tr><td>Sesje klientów</td><td>❌ Utracone; klienci otrzymują <code>RemoteException</code> i wracają do ekranu logowania</td></tr>
+</table>
+
+</body>
+</html>

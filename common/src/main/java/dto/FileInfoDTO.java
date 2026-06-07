@@ -1,6 +1,9 @@
 package dto;
 
-public class FileInfoDTO {
+import java.io.Serializable;
+
+public class FileInfoDTO implements Serializable {
+    private static final long serialVersionUID = 1L;
     private String id;
     private String originalName;
     private String contentType;

@@ -4,43 +4,35 @@ import dto.UserDTO;
 import repository.UserRepository;
 
 import java.rmi.RemoteException;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.MissingResourceException;
 import java.util.NoSuchElementException;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 public class UserRepositoryImpl implements UserRepository {
-    List<UserDTO> users;
 
-    public UserRepositoryImpl() throws RemoteException {
-        users = new ArrayList<UserDTO>();
-    }
+    private final List<UserDTO> users = new CopyOnWriteArrayList<>();
+
+    public UserRepositoryImpl() throws RemoteException {}
 
     @Override
-    public void save(UserDTO user) throws MissingResourceException {
-        if (!users.contains(user) && user != null) {
-            users.add(user);
-        } else {
-            throw new IllegalArgumentException("User is null or already exists");
-        }
+    public void save(UserDTO user) {
+        if (user == null) throw new IllegalArgumentException("User cannot be null");
+        boolean exists = users.stream().anyMatch(u -> u.getUsername().equals(user.getUsername()));
+        if (exists) throw new IllegalArgumentException("User already exists: " + user.getUsername());
+        users.add(user);
     }
 
     @Override
     public UserDTO findByUsername(String username) {
-        for (UserDTO user : users) {
-            if (user.getUsername().equals(username)) {
-                return user;
-            }
-            else throw new NoSuchElementException("User cannot be found");
-        }
-        return null;
+        return users.stream()
+                .filter(u -> u.getUsername().equals(username))
+                .findFirst()
+                .orElse(null);
     }
 
     @Override
     public void delete(String username) {
-        if (users.contains(username) && username != null) {
-            users.remove(username);
-        }
-        else throw new NoSuchElementException("User cannot be found and deleted");
+        boolean removed = users.removeIf(u -> u.getUsername().equals(username));
+        if (!removed) throw new NoSuchElementException("User not found: " + username);
     }
 }
