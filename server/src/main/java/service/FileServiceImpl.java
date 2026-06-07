@@ -13,10 +13,13 @@ import repository.impl.FileRepositoryImpl;
 import java.rmi.RemoteException;
 import java.rmi.server.UnicastRemoteObject;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
 public class FileServiceImpl extends UnicastRemoteObject implements FileService {
+
+    private static final long MAX_FILE_SIZE = 50L * 1024 * 1024; // 50 MB
 
     private final FileRepositoryImpl fileRepository;
     private final AuthService authService;
@@ -38,6 +41,10 @@ public class FileServiceImpl extends UnicastRemoteObject implements FileService 
         }
         if (data == null || data.length == 0) {
             throw new RemoteException("Plik jest pusty");
+        }
+        if (data.length > MAX_FILE_SIZE) {
+            throw new RemoteException("Plik przekracza dozwolony limit 50 MB (rozmiar: "
+                    + (data.length / 1024 / 1024) + " MB)");
         }
         try {
             String storedName = UUID.randomUUID().toString();
@@ -90,6 +97,15 @@ public class FileServiceImpl extends UnicastRemoteObject implements FileService 
         } catch (RuntimeException e) {
             throw new RemoteException(e.getMessage(), e);
         }
+    }
+
+    @Override
+    public FileInfoDTO findFileByName(String filename) throws RemoteException {
+        if (filename == null || filename.isBlank()) {
+            throw new RemoteException("Nazwa pliku nie może być pusta");
+        }
+        Optional<FileMetadata> found = fileRepository.findFileByName(filename);
+        return found.map(this::mapToDTO).orElse(null);
     }
 
     private FileInfoDTO mapToDTO(FileMetadata meta) {

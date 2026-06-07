@@ -1,6 +1,6 @@
 import dto.FileInfoDTO;
 import enums.UserRole;
-import remote.AdminSerivce;
+import remote.AdminService;
 import remote.AuthService;
 import remote.FileService;
 import session.SessionManager;
@@ -19,7 +19,7 @@ public class ClientMain {
 
     private static AuthService authService;
     private static FileService fileService;
-    private static AdminSerivce adminService;
+    private static AdminService adminService;
 
     private static final Scanner sc = new Scanner(System.in);
 
@@ -27,7 +27,7 @@ public class ClientMain {
         try {
             fileService  = (FileService)  Naming.lookup("//localhost:5555/FileService");
             authService  = (AuthService)  Naming.lookup("//localhost:5555/AuthService");
-            adminService = (AdminSerivce) Naming.lookup("//localhost:5555/AdminService");
+            adminService = (AdminService) Naming.lookup("//localhost:5555/AdminService");
         } catch (NotBoundException | MalformedURLException | RemoteException e) {
             System.err.println("[BŁĄD] Nie można połączyć z serwerem: " + e.getMessage());
             System.err.println("Upewnij się, że serwer jest uruchomiony na porcie 5555.");
@@ -68,7 +68,6 @@ public class ClientMain {
                     SessionManager.setRole(role);
                     System.out.println("[✓] Zalogowano jako " + login + " [" + role + "]");
                     showMainMenu();
-                    // po wylogowaniu wracamy do ekranu logowania
                 } else {
                     System.out.println("[!] Błędny login lub hasło. Spróbuj ponownie.");
                 }
@@ -87,12 +86,13 @@ public class ClientMain {
         while (running) {
             System.out.println("\n=== Menu ===");
             System.out.println("1. Lista plików");
-            System.out.println("2. Pobierz plik");
-            System.out.println("3. Wyślij plik");
+            System.out.println("2. Szukaj pliku po nazwie");
+            System.out.println("3. Pobierz plik");
+            System.out.println("4. Wyślij plik");
             if (SessionManager.getRole() == UserRole.ADMIN) {
-                System.out.println("4. Usuń plik");
-                System.out.println("5. Dodaj użytkownika");
-                System.out.println("6. Usuń użytkownika");
+                System.out.println("5. Usuń plik");
+                System.out.println("6. Dodaj użytkownika");
+                System.out.println("7. Usuń użytkownika");
             }
             System.out.println("0. Wyloguj");
             System.out.print("Wybór: ");
@@ -101,20 +101,12 @@ public class ClientMain {
             try {
                 switch (choice) {
                     case "1" -> listFiles();
-                    case "2" -> downloadFile();
-                    case "3" -> uploadFile();
-                    case "4" -> {
-                        requireAdmin();
-                        deleteFile();
-                    }
-                    case "5" -> {
-                        requireAdmin();
-                        addUser();
-                    }
-                    case "6" -> {
-                        requireAdmin();
-                        deleteUser();
-                    }
+                    case "2" -> searchFile();
+                    case "3" -> downloadFile();
+                    case "4" -> uploadFile();
+                    case "5" -> { requireAdmin(); deleteFile(); }
+                    case "6" -> { requireAdmin(); addUser(); }
+                    case "7" -> { requireAdmin(); deleteUser(); }
                     case "0" -> {
                         SessionManager.clear();
                         System.out.println("[✓] Wylogowano.");
@@ -146,6 +138,25 @@ public class ClientMain {
         }
     }
 
+    private static void searchFile() throws RemoteException {
+        System.out.print("Nazwa pliku do wyszukania: ");
+        String filename = sc.nextLine().trim();
+        if (filename.isEmpty()) {
+            System.out.println("[!] Nazwa pliku nie może być pusta.");
+            return;
+        }
+        FileInfoDTO result = fileService.findFileByName(filename);
+        if (result == null) {
+            System.out.println("[!] Plik \"" + filename + "\" nie istnieje na serwerze.");
+        } else {
+            System.out.println("\n[✓] Znaleziono plik:");
+            System.out.printf("  Nazwa:   %s%n", result.getOriginalName());
+            System.out.printf("  Rozmiar: %d B (%.2f MB)%n",
+                    result.getSize(), result.getSize() / 1024.0 / 1024.0);
+            System.out.printf("  ID:      %s%n", result.getId());
+        }
+    }
+
     private static void uploadFile() throws RemoteException {
         System.out.print("Ścieżka do pliku lokalnego: ");
         String pathStr = sc.nextLine().trim();
@@ -163,6 +174,12 @@ public class ClientMain {
             return;
         }
         try {
+            long fileSize = Files.size(localPath);
+            if (fileSize > 50L * 1024 * 1024) {
+                System.out.printf("[!] Plik przekracza limit 50 MB (rozmiar: %.2f MB).%n",
+                        fileSize / 1024.0 / 1024.0);
+                return;
+            }
             byte[] data = Files.readAllBytes(localPath);
             String filename = localPath.getFileName().toString();
             fileService.uploadFile(filename, data);

@@ -16,6 +16,15 @@ public class FileMetadata {
         this.fileSize = fileData != null ? fileData.length : 0;
     }
 
+    // Konstruktor do odtwarzania metadanych z CSV (bez bajtów — plik jest na dysku)
+    public FileMetadata(String fileName, String fileStoredName, long fileSize) {
+        this.fileName = fileName;
+        this.fileStoredName = fileStoredName;
+        this.filePath = "";
+        this.fileData = null;
+        this.fileSize = fileSize;
+    }
+
     public String getFileName() { return fileName; }
     public String getFileStoredName() { return fileStoredName; }
     public String getFilePath() { return filePath; }

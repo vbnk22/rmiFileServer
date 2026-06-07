@@ -2,7 +2,7 @@ package service;
 
 import dto.UserDTO;
 import enums.UserRole;
-import remote.AdminSerivce;
+import remote.AdminService;
 import remote.AuthService;
 import repository.UserRepository;
 import repository.impl.UserRepositoryImpl;
@@ -10,7 +10,7 @@ import repository.impl.UserRepositoryImpl;
 import java.rmi.RemoteException;
 import java.rmi.server.UnicastRemoteObject;
 
-public class AdminServiceImpl extends UnicastRemoteObject implements AdminSerivce {
+public class AdminServiceImpl extends UnicastRemoteObject implements AdminService {
 
     private UserRepository userRepository;
     private AuthService authService;

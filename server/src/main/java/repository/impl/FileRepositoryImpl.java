@@ -3,7 +3,8 @@ package repository.impl;
 import model.FileMetadata;
 import repository.FileRepository;
 
-import java.io.IOException;
+import java.io.*;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.List;
 import java.util.Optional;
@@ -15,6 +16,7 @@ public class FileRepositoryImpl implements FileRepository {
 
     private final List<FileMetadata> files = new CopyOnWriteArrayList<>();
     private final Path storageDir = Paths.get("storage/files");
+    private final Path metadataCsv = Paths.get("storage/files_metadata.csv");
     // Wielu czytelników jednocześnie (download), wyłączny zapis (upload/delete)
     private final ReadWriteLock rwLock = new ReentrantReadWriteLock();
 
@@ -23,8 +25,39 @@ public class FileRepositoryImpl implements FileRepository {
             if (!Files.exists(storageDir)) {
                 Files.createDirectories(storageDir);
             }
+            loadMetadataFromCsv();
         } catch (IOException e) {
-            throw new RuntimeException("Cannot create storage directory", e);
+            throw new RuntimeException("Cannot initialize storage", e);
+        }
+    }
+
+    private void loadMetadataFromCsv() throws IOException {
+        if (!Files.exists(metadataCsv)) return;
+        try (BufferedReader br = Files.newBufferedReader(metadataCsv, StandardCharsets.UTF_8)) {
+            String line;
+            while ((line = br.readLine()) != null) {
+                String[] parts = line.split(",", 3);
+                if (parts.length != 3) continue;
+                String storedName = parts[0];
+                String originalName = parts[1];
+                long size = Long.parseLong(parts[2]);
+                // Tylko ładujemy jeśli plik faktycznie istnieje na dysku
+                if (Files.exists(storageDir.resolve(storedName))) {
+                    files.add(new FileMetadata(originalName, storedName, size));
+                }
+            }
+        }
+        System.out.println("[Storage] Załadowano " + files.size() + " plików z CSV.");
+    }
+
+    // Musi być wywołana wewnątrz writeLock
+    private void saveMetadataToCsv() throws IOException {
+        try (BufferedWriter bw = Files.newBufferedWriter(metadataCsv, StandardCharsets.UTF_8,
+                StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)) {
+            for (FileMetadata m : files) {
+                bw.write(m.getFileStoredName() + "," + m.getFileName() + "," + m.getFileSize());
+                bw.newLine();
+            }
         }
     }
 
@@ -37,6 +70,7 @@ public class FileRepositoryImpl implements FileRepository {
             // Zwolnienie bajtów z pamięci po zapisaniu na dysk — zapobieganie wyciekowi pamięci
             meta.setFileData(null);
             files.add(meta);
+            saveMetadataToCsv();
         } catch (IOException e) {
             throw new RuntimeException("Error saving file to disk", e);
         } finally {
@@ -117,6 +151,7 @@ public class FileRepositoryImpl implements FileRepository {
             Path filePath = storageDir.resolve(found.get().getFileStoredName());
             Files.deleteIfExists(filePath);
             files.removeIf(f -> f.getFileName().equals(fileName));
+            saveMetadataToCsv();
         } catch (IOException e) {
             throw new RuntimeException("Error deleting file", e);
         } finally {
