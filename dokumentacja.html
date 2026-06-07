@@ -53,8 +53,9 @@
   <tr><th>Zadanie</th><th>Wykonawca</th></tr>
   <tr><td>Architektura RMI, interfejsy zdalne</td><td>Mateusz Chudkowski</td></tr>
   <tr><td>Implementacja serwera (AuthService, FileService, AdminService)</td><td>Mateusz Chudkowski</td></tr>
-  <tr><td>Repozytoria z synchronizacją (ReadWriteLock, CopyOnWriteArrayList)</td><td>Mateusz Chudkowski</td></tr>
-  <tr><td>Klient terminalowy (menu, upload, download, obsługa błędów)</td><td>Mateusz Chudkowski</td></tr>
+  <tr><td>Repozytoria z synchronizacją (per-file ReadWriteLock, CopyOnWriteArrayList)</td><td>Mateusz Chudkowski</td></tr>
+  <tr><td>Persystencja CSV (metadane plików, konta użytkowników)</td><td>Mateusz Chudkowski</td></tr>
+  <tr><td>Klient terminalowy (menu, upload, download, wyszukiwanie, obsługa błędów)</td><td>Mateusz Chudkowski</td></tr>
   <tr><td>Testy współbieżności</td><td>Mateusz Chudkowski</td></tr>
   <tr><td>Dokumentacja</td><td>Mateusz Chudkowski</td></tr>
 </table>
@@ -67,19 +68,22 @@
 <h2>Przyjęte założenia</h2>
 <ul>
   <li>Komunikacja odbywa się wyłącznie przez Java RMI (rejestr na porcie 5555).</li>
-  <li>Dane użytkowników i metadane plików przechowywane są w pamięci operacyjnej (in-memory); pliki fizyczne zapisywane są na dysku serwera w katalogu <code>storage/files/</code>.</li>
-  <li>System ról: <code>ADMIN</code> (pełen dostęp) i <code>USER</code> (upload/download).</li>
+  <li>Metadane plików i konta użytkowników są persystowane w plikach CSV (<code>storage/files_metadata.csv</code>, <code>storage/users.csv</code>) — dane przeżywają restart serwera.</li>
+  <li>Pliki fizyczne zapisywane są na dysku serwera w katalogu <code>storage/files/</code> pod nazwą UUID.</li>
+  <li>System ról: <code>ADMIN</code> (pełen dostęp) i <code>USER</code> (upload/download/wyszukiwanie).</li>
   <li>Uwierzytelnianie oparte na sesjach (UUID token).</li>
-  <li>Wiele klientów może jednocześnie pobierać ten sam plik (odczyt współbieżny).</li>
-  <li>Operacje zapisu i usuwania plików są wyłączne (blokada zapisu).</li>
+  <li>Wiele klientów może jednocześnie pobierać różne pliki — blokowanie drobnoziarniste per-plik.</li>
+  <li>Operacje zapisu i usuwania konkretnego pliku są wyłączne dla tego pliku, nie blokując operacji na innych plikach.</li>
+  <li>Rozmiar wgrywanego pliku ograniczony do 50 MB.</li>
 </ul>
 
 <h2>Zakres funkcjonalny</h2>
 <ul>
-  <li>Rejestracja i usuwanie użytkowników przez administratora.</li>
+  <li>Rejestracja i usuwanie użytkowników przez administratora (persystowane w CSV).</li>
   <li>Logowanie z przydzielaniem tokenu sesji (UUID).</li>
   <li>Wylistowanie plików dostępnych na serwerze.</li>
-  <li>Wysyłanie pliku na serwer (upload) — klient przesyła bajty przez RMI.</li>
+  <li>Wyszukiwanie pliku po nazwie — zwraca metadane (nazwa, rozmiar, UUID na dysku).</li>
+  <li>Wysyłanie pliku na serwer (upload) — limit 50 MB, klient przesyła bajty przez RMI.</li>
   <li>Pobieranie pliku z serwera (download) — serwer zwraca bajty przez RMI.</li>
   <li>Usuwanie pliku przez administratora z potwierdzeniem.</li>
 </ul>
@@ -92,7 +96,7 @@
   <tr><th>Moduł</th><th>Zawartość</th><th>Zależności</th></tr>
   <tr><td><code>common</code></td><td>Interfejsy RMI, DTO, enums</td><td>—</td></tr>
   <tr><td><code>server</code></td><td>Implementacje serwisów, repozytoria, model, ServerMain</td><td>common</td></tr>
-  <tr><td><code>client</code></td><td>ClientMain, SessionManager, menu</td><td>common</td></tr>
+  <tr><td><code>client</code></td><td>ClientMain, SessionManager</td><td>common</td></tr>
 </table>
 
 <h2>Schemat blokowy komunikacji Klient–Serwer (RMI)</h2>
@@ -115,32 +119,38 @@
 ┌──────▼────────┐  ┌───────▼────────┐  ┌──────▼────────────┐
 │AuthServiceImpl│  │FileServiceImpl │  │AdminServiceImpl   │
 │               │  │                │  │                   │
-│ConcurrentHashMap  ReadWriteLock   │  │UserRepository     │
+│ConcurrentHashMap  per-file locks  │  │UserRepository     │
 │sessions/roles │  │FileRepository  │  │                   │
 └──────┬────────┘  └───────┬────────┘  └──────┬────────────┘
        │                   │                  │
 ┌──────▼───────────────────▼──────────────────▼──────────────┐
-│              REPOZYTORIA (In-Memory + Disk)                 │
+│              REPOZYTORIA (In-Memory + CSV + Disk)           │
 │  UserRepositoryImpl          FileRepositoryImpl             │
 │  CopyOnWriteArrayList        CopyOnWriteArrayList           │
-│                              + ReentrantReadWriteLock       │
+│  + synchronized CSV          + ConcurrentHashMap&lt;fileName,  │
+│    storage/users.csv           ReentrantReadWriteLock&gt;      │
+│                              + ReentrantLock (CSV)          │
+│                              + storage/files_metadata.csv   │
 │                              + storage/files/ (dysk)        │
 └─────────────────────────────────────────────────────────────┘
 </pre>
 
 <h2>Przepływ danych — upload pliku</h2>
 <pre>
-Klient                    RMI                    Serwer
-  │                        │                       │
-  │ Files.readAllBytes()   │                       │
-  │ (lokalny dysk)         │                       │
-  ├──── uploadFile(name, byte[]) ─────────────────►│
-  │                        │  writeLock.lock()      │
-  │                        │  Files.write(disk)     │
-  │                        │  meta.setFileData(null)│  ← zwolnienie pamięci
-  │                        │  files.add(meta)       │
-  │                        │  writeLock.unlock()    │
-  │◄───────────── void ────┤                       │
+Klient                         RMI                       Serwer
+  │                             │                           │
+  │ sprawdź rozmiar &lt;= 50 MB    │                           │
+  │ Files.readAllBytes()        │                           │
+  │ (lokalny dysk)              │                           │
+  ├──── uploadFile(name, byte[]) ────────────────────────► │
+  │                             │  sprawdź rozmiar &lt;= 50MB  │
+  │                             │  lockFor(name).writeLock  │
+  │                             │  Files.write(disk/UUID)   │
+  │                             │  meta.setFileData(null)   │ ← zwolnienie pamięci
+  │                             │  files.add(meta)          │
+  │                             │  csvLock → zapis CSV      │
+  │                             │  writeLock.unlock()       │
+  │◄──────────────── void ──────┤                           │
 </pre>
 
 <!-- ═══════════════════════════════════════════ 4 ═══ -->
@@ -157,17 +167,18 @@ Klient                    RMI                    Serwer
 <h2>FileService (<code>remote.FileService</code>)</h2>
 <table>
   <tr><th>Metoda</th><th>Parametry</th><th>Zwraca</th><th>Opis</th></tr>
-  <tr><td><code>uploadFile</code></td><td><code>String filename,<br>byte[] data</code></td><td><code>void</code></td><td>Przyjmuje bajty pliku od klienta i zapisuje go na dysku serwera. Bajty zwalniane po zapisie.</td></tr>
-  <tr><td><code>downloadFile</code></td><td><code>String fileName</code></td><td><code>byte[]</code></td><td>Atomowe wyszukanie i odczyt pliku pod jedną blokadą — brak TOCTOU.</td></tr>
+  <tr><td><code>uploadFile</code></td><td><code>String filename,<br>byte[] data</code></td><td><code>void</code></td><td>Przyjmuje bajty pliku (max 50 MB) i zapisuje na dysku. Bajty zwalniane po zapisie. Klient też sprawdza limit przed odczytem z dysku.</td></tr>
+  <tr><td><code>downloadFile</code></td><td><code>String fileName</code></td><td><code>byte[]</code></td><td>Atomowe wyszukanie i odczyt pliku pod per-file read lock — eliminuje TOCTOU.</td></tr>
   <tr><td><code>listFiles</code></td><td>—</td><td><code>List&lt;FileInfoDTO&gt;</code></td><td>Zwraca listę metadanych. Korzysta z <code>fileSize</code> — nie ładuje bajtów pliku.</td></tr>
   <tr><td><code>deleteFile</code></td><td><code>String sessionId,<br>String filename</code></td><td><code>boolean</code></td><td>Usuwa plik (tylko ADMIN). Weryfikuje sesję i rolę.</td></tr>
+  <tr><td><code>findFileByName</code></td><td><code>String filename</code></td><td><code>FileInfoDTO</code></td><td>Wyszukuje plik po nazwie. Zwraca metadane lub <code>null</code> jeśli nie istnieje.</td></tr>
 </table>
 
 <h2>AdminService (<code>remote.AdminService</code>)</h2>
 <table>
   <tr><th>Metoda</th><th>Parametry</th><th>Zwraca</th><th>Opis</th></tr>
-  <tr><td><code>registerUser</code></td><td><code>String username,<br>String password</code></td><td><code>boolean</code></td><td>Tworzy nowego użytkownika z rolą USER.</td></tr>
-  <tr><td><code>deleteUser</code></td><td><code>String sessionId,<br>String username</code></td><td><code>void</code></td><td>Usuwa użytkownika (tylko ADMIN). Weryfikuje sesję i rolę. Blokuje usunięcie konta <code>admin</code>.</td></tr>
+  <tr><td><code>registerUser</code></td><td><code>String username,<br>String password</code></td><td><code>boolean</code></td><td>Tworzy nowego użytkownika z rolą USER. Persystuje do CSV.</td></tr>
+  <tr><td><code>deleteUser</code></td><td><code>String sessionId,<br>String username</code></td><td><code>void</code></td><td>Usuwa użytkownika (tylko ADMIN). Weryfikuje sesję i rolę. Blokuje usunięcie konta <code>admin</code>. Persystuje do CSV.</td></tr>
 </table>
 
 <p><strong>Obiekty DTO przesyłane przez sieć:</strong></p>
@@ -186,21 +197,35 @@ Klient                    RMI                    Serwer
 <h3>1. Repozytorium plików — <code>FileRepositoryImpl</code></h3>
 <p><strong>Problem:</strong> Wielu klientów może jednocześnie pobierać, wgrywać lub usuwać pliki. Bez synchronizacji możliwe są:</p>
 <ul>
-  <li><strong>Race condition przy zapisie</strong> — dwa równoległe uploady mogą nadpisać dane na dysku.</li>
-  <li><strong>TOCTOU (Time-Of-Check-Time-Of-Use)</strong> — klient sprawdza, czy plik istnieje (<code>findFileByName</code>), a w oknie między sprawdzeniem a odczytem (<code>downloadFile</code>) admin usuwa ten plik.</li>
+  <li><strong>Race condition przy zapisie</strong> — dwa równoległe uploady tego samego pliku mogą nadpisać dane na dysku.</li>
+  <li><strong>TOCTOU (Time-Of-Check-Time-Of-Use)</strong> — klient sprawdza, czy plik istnieje, a w oknie między sprawdzeniem a odczytem admin usuwa ten plik.</li>
+  <li><strong>Race condition przy zapisie CSV</strong> — dwa równoległe uploady różnych plików mogą jednocześnie pisać do <code>files_metadata.csv</code> i wzajemnie nadpisać zmiany.</li>
 </ul>
 
-<p><strong>Rozwiązanie: <code>ReentrantReadWriteLock</code></strong></p>
+<p><strong>Rozwiązanie: blokowanie drobnoziarniste (per-file lock)</strong></p>
+<p>Zamiast jednego globalnego locka na wszystkie pliki zastosowano mapę locków: <code>ConcurrentHashMap&lt;String, ReentrantReadWriteLock&gt;</code> indeksowaną nazwą pliku. Dzięki temu klienci operujący na <em>różnych</em> plikach nie blokują się wzajemnie — kolejkowanie dotyczy wyłącznie równoległego dostępu do <em>tego samego</em> pliku.</p>
+
 <ul>
-  <li><strong>Blokada odczytu (read lock)</strong> — <code>downloadFile()</code>, <code>listFiles()</code>, <code>findFileByName()</code>: wiele wątków jednocześnie może trzymać blokadę odczytu.</li>
-  <li><strong>Blokada zapisu (write lock)</strong> — <code>uploadFile()</code>, <code>deleteFile()</code>: blokada wyłączna.</li>
-  <li><strong>Metoda <code>findAndDownload()</code></strong> — atomowe wyszukanie i odczyt pod jedną blokadą odczytu, eliminuje TOCTOU.</li>
+  <li><strong>Read lock per-plik</strong> — <code>downloadFile()</code>, <code>findFileByName()</code>: wiele wątków jednocześnie może pobierać różne (lub ten sam) pliki.</li>
+  <li><strong>Write lock per-plik</strong> — <code>uploadFile()</code>, <code>deleteFile()</code>: wyłączny dostęp do konkretnego pliku, inne pliki dostępne równolegle.</li>
+  <li><strong>Metoda <code>findAndDownload()</code></strong> — atomowe wyszukanie i odczyt pod jedną blokadą odczytu per-plik, eliminuje TOCTOU.</li>
+  <li><strong><code>csvLock</code> (ReentrantLock)</strong> — osobna blokada wyłącznie do zapisu CSV; trzymana tylko przez czas zapisu pliku metadanych, nie przez cały czas I/O dysku.</li>
 </ul>
 
 <pre>
+// Mapa locków — jeden ReadWriteLock na każdy plik (klucz = oryginalna nazwa)
+private final ConcurrentHashMap&lt;String, ReentrantReadWriteLock&gt; fileLocks = new ConcurrentHashMap&lt;&gt;();
+private final ReentrantLock csvLock = new ReentrantLock();
+
+private ReentrantReadWriteLock lockFor(String fileName) {
+    return fileLocks.computeIfAbsent(fileName, k -> new ReentrantReadWriteLock());
+}
+
 // Atomowe find+read — zapobiega TOCTOU race condition:
 public byte[] findAndDownload(String fileName) {
-    rwLock.readLock().lock();
+    ReentrantReadWriteLock lock = fileLocks.get(fileName);
+    if (lock == null) throw new RuntimeException("File not found: " + fileName);
+    lock.readLock().lock();
     try {
         FileMetadata meta = files.stream()
                 .filter(f -> f.getFileName().equals(fileName))
@@ -208,26 +233,30 @@ public byte[] findAndDownload(String fileName) {
                 .orElseThrow(() -> new RuntimeException("File not found: " + fileName));
         return Files.readAllBytes(storageDir.resolve(meta.getFileStoredName()));
     } finally {
-        rwLock.readLock().unlock();
+        lock.readLock().unlock();
     }
 }
 
-// uploadFile — wyłączny zapis + zwolnienie pamięci:
+// uploadFile — wyłączny zapis per-plik + csvLock do metadanych:
 public void uploadFile(FileMetadata meta) {
-    rwLock.writeLock().lock();
+    ReentrantReadWriteLock lock = lockFor(meta.getFileName());
+    lock.writeLock().lock();
     try {
         Files.write(storageDir.resolve(meta.getFileStoredName()), meta.getFileData());
         meta.setFileData(null);  // bajty zwolnione — brak wycieku pamięci
         files.add(meta);
+        saveMetadataToCsv();     // wewnątrz: csvLock.lock() / unlock()
     } finally {
-        rwLock.writeLock().unlock();
+        lock.writeLock().unlock();
     }
 }
 </pre>
 
+<p><strong>Dlaczego lock nie jest usuwany z mapy po <code>deleteFile()</code>:</strong> inny wątek mógł już pobrać referencję do obiektu locka przed usunięciem go z mapy. Gdyby lock został usunięty, ten wątek działałby na "osieroconej" blokadzie i mógłby odczytać plik po jego fizycznym usunięciu. Zachowanie locka w mapie jest świadomym kompromisem: potencjalny drobny wyciek pamięci przy masowych operacjach w zamian za pełne bezpieczeństwo wątkowe.</p>
+
 <h3>2. Lista użytkowników — <code>UserRepositoryImpl</code></h3>
-<p><strong>Problem:</strong> Jednoczesna rejestracja i usuwanie użytkowników z wielu klientów może prowadzić do <code>ConcurrentModificationException</code>.</p>
-<p><strong>Rozwiązanie:</strong> <code>CopyOnWriteArrayList</code> — operacje odczytu bezpieczne bez blokady. Każda operacja zapisu tworzy kopię listy, co gwarantuje atomowość.</p>
+<p><strong>Problem:</strong> Jednoczesna rejestracja i usuwanie użytkowników z wielu klientów może prowadzić do <code>ConcurrentModificationException</code>, a równoległy zapis CSV może nadpisać zmiany.</p>
+<p><strong>Rozwiązanie:</strong> <code>CopyOnWriteArrayList</code> dla listy użytkowników (bezpieczna iteracja) oraz <code>synchronized</code> na metodach <code>save()</code> i <code>delete()</code> — gwarantuje atomowość pary operacji: modyfikacja listy + zapis CSV.</p>
 
 <h3>3. Sesje użytkowników — <code>AuthServiceImpl</code></h3>
 <p><strong>Rozwiązanie:</strong> Dwie mapy <code>ConcurrentHashMap</code> (sesja→login, sesja→rola). Wszystkie operacje atomowe, bez potrzeby jawnej synchronizacji.</p>
@@ -238,18 +267,19 @@ public void uploadFile(FileMetadata meta) {
   <tr><td><code>AuthServiceImpl.sessions</code></td><td><code>ConcurrentHashMap</code></td><td>Atomowe get/put dla sesji wielu klientów jednocześnie</td></tr>
   <tr><td><code>AuthServiceImpl.sessionRoles</code></td><td><code>ConcurrentHashMap</code></td><td>Atomowe get/put dla ról sesji</td></tr>
   <tr><td><code>FileRepositoryImpl.files</code></td><td><code>CopyOnWriteArrayList</code></td><td>Thread-safe iteracja bez blokady podczas listowania</td></tr>
-  <tr><td><code>FileRepositoryImpl</code> I/O</td><td><code>ReentrantReadWriteLock</code></td><td>Wielu czytelników równolegle, wyłączny zapis</td></tr>
-  <tr><td><code>FileRepositoryImpl.findAndDownload</code></td><td>Read lock na cały blok find+read</td><td>Eliminacja TOCTOU race condition</td></tr>
-  <tr><td><code>UserRepositoryImpl.users</code></td><td><code>CopyOnWriteArrayList</code></td><td>Thread-safe operacje bez ConcurrentModificationException</td></tr>
+  <tr><td><code>FileRepositoryImpl.fileLocks</code></td><td><code>ConcurrentHashMap&lt;String, ReentrantReadWriteLock&gt;</code></td><td>Blokowanie drobnoziarniste — osobny ReadWriteLock na każdy plik; klienci różnych plików nie blokują się wzajemnie</td></tr>
+  <tr><td><code>FileRepositoryImpl.findAndDownload</code></td><td>Read lock per-plik na cały blok find+read</td><td>Eliminacja TOCTOU race condition</td></tr>
+  <tr><td><code>FileRepositoryImpl.csvLock</code></td><td><code>ReentrantLock</code></td><td>Wyłączny zapis CSV — zapobiega nadpisaniu metadanych przez równoległe uploady różnych plików</td></tr>
+  <tr><td><code>UserRepositoryImpl.users</code></td><td><code>CopyOnWriteArrayList</code> + <code>synchronized</code></td><td>Thread-safe iteracja; atomowość pary lista+CSV przy rejestracji/usunięciu</td></tr>
   <tr><td>RMI Server (JVM)</td><td>Wbudowana wielowątkowość</td><td>Każde wywołanie klienta obsługiwane w osobnym wątku</td></tr>
 </table>
 
 <h2>Brak zakleszczeń (Deadlock-free)</h2>
 <p>System nie jest podatny na zakleszczenia, ponieważ:</p>
 <ul>
-  <li>Każdy zasób ma <strong>jeden</strong> lock (<code>rwLock</code> w FileRepositoryImpl, <code>ConcurrentHashMap</code> w AuthServiceImpl) — brak możliwości cyklicznego oczekiwania.</li>
-  <li>Blokady zawsze zwalniane w bloku <code>finally</code> — gwarantowana inwolucja nawet przy wyjątku.</li>
-  <li>Brak zagnieżdżonego pobierania wielu blokad w jednym wątku.</li>
+  <li><strong>Hierarchia locków:</strong> wątek trzyma zawsze co najwyżej dwa locki jednocześnie — per-file lock (writeLock) i następnie csvLock. Kolejność akwizycji jest zawsze taka sama we wszystkich ścieżkach kodu, więc cykliczne oczekiwanie jest niemożliwe.</li>
+  <li>Blokady zawsze zwalniane w bloku <code>finally</code> — gwarantowane zwolnienie nawet przy wyjątku.</li>
+  <li><code>computeIfAbsent</code> w <code>ConcurrentHashMap</code> jest atomowe — brak race condition przy tworzeniu nowego locka.</li>
 </ul>
 
 <!-- ═══════════════════════════════════════════ 6 ═══ -->
@@ -258,25 +288,26 @@ public void uploadFile(FileMetadata meta) {
 <h2>Przechowywanie danych</h2>
 <table>
   <tr><th>Dane</th><th>Gdzie</th><th>Trwałość</th></tr>
-  <tr><td>Metadane plików</td><td>In-memory (<code>CopyOnWriteArrayList&lt;FileMetadata&gt;</code>)</td><td>Utracone po restarcie serwera</td></tr>
-  <tr><td>Pliki fizyczne</td><td>Dysk: <code>storage/files/{UUID}</code></td><td>Trwałe na dysku</td></tr>
-  <tr><td>Konta użytkowników</td><td>In-memory (<code>CopyOnWriteArrayList&lt;UserDTO&gt;</code>)</td><td>Utracone po restarcie; admin odtwarzany automatycznie</td></tr>
-  <tr><td>Sesje</td><td>In-memory (<code>ConcurrentHashMap</code>)</td><td>Utracone po restarcie</td></tr>
+  <tr><td>Metadane plików</td><td>In-memory (<code>CopyOnWriteArrayList&lt;FileMetadata&gt;</code>) + <code>storage/files_metadata.csv</code></td><td>✅ Trwałe — odtwarzane z CSV po restarcie</td></tr>
+  <tr><td>Pliki fizyczne</td><td>Dysk: <code>storage/files/{UUID}</code></td><td>✅ Trwałe na dysku</td></tr>
+  <tr><td>Konta użytkowników</td><td>In-memory (<code>CopyOnWriteArrayList&lt;UserDTO&gt;</code>) + <code>storage/users.csv</code></td><td>✅ Trwałe — odtwarzane z CSV po restarcie</td></tr>
+  <tr><td>Sesje</td><td>In-memory (<code>ConcurrentHashMap</code>)</td><td>❌ Utracone po restarcie; klienci wracają do ekranu logowania</td></tr>
 </table>
 
 <h2>Zarządzanie pamięcią — kluczowe decyzje</h2>
 <ul>
   <li><strong>Zwolnienie bajtów po uploadzie:</strong> Po zapisaniu pliku na dysk wywołujemy <code>meta.setFileData(null)</code>. Bez tego każdy wgrany plik trzymałby bajty w heap przez cały czas działania serwera.</li>
-  <li><strong><code>listFiles()</code> korzysta z <code>fileSize</code>:</strong> Pole <code>fileSize</code> w <code>FileMetadata</code> ustawiane raz przy tworzeniu, dzięki czemu <code>mapToDTO()</code> nie musi odczytywać <code>fileData</code> (które jest już null).</li>
+  <li><strong><code>listFiles()</code> korzysta z <code>fileSize</code>:</strong> Pole <code>fileSize</code> ustawiane przy tworzeniu obiektu lub ładowaniu z CSV, dzięki czemu <code>mapToDTO()</code> nie musi odczytywać <code>fileData</code> (które jest już null).</li>
   <li><strong>Bajty w RMI:</strong> Podczas uploadu/downloadu <code>byte[]</code> jest trzymany w pamięci JVM tylko przez czas trwania wywołania RMI — serializacja/deserializacja zarządzana przez JVM.</li>
+  <li><strong>Limit 50 MB:</strong> Sprawdzany dwustronnie — klient sprawdza przed odczytem pliku z dysku (zapobiega ładowaniu gigantycznych plików do pamięci), serwer weryfikuje po otrzymaniu bajtów (ochrona przed obejściem walidacji klienta).</li>
 </ul>
 
 <h2>Ograniczenia</h2>
 <ul>
-  <li>Brak trwałości metadanych — restart serwera wymaga ponownego wgrania plików (fizyczne pliki pozostają na dysku).</li>
   <li>Brak TTL dla sesji — zalogowane sesje nie wygasają automatycznie.</li>
-  <li>Brak limitu rozmiaru pliku — bardzo duże pliki mogą obciążyć heap podczas transferu RMI.</li>
-  <li>Jeden <code>ReadWriteLock</code> na cały zbiór plików — przy bardzo dużej liczbie klientów piszących jednocześnie może stać się wąskim gardłem (rozwiązanie: lock per-plik).</li>
+  <li>Limit 50 MB per plik — bardzo duże pliki nie są obsługiwane.</li>
+  <li>Locki per-plik pozostają w mapie po usunięciu pliku — przy masowych operacjach upload+delete przez dłuższy czas mapa rośnie. Akceptowalne w środowisku laboratoryjnym; rozwiązaniem byłoby użycie <code>WeakReference</code> lub okresowe czyszczenie locków bez oczekujących wątków.</li>
+  <li>Hasła przechowywane w CSV plain-textem — brak hashowania.</li>
 </ul>
 
 <!-- ═══════════════════════════════════════════ 7 ═══ -->
@@ -296,9 +327,15 @@ public void uploadFile(FileMetadata meta) {
 <h2>Krok 2 — Uruchomienie serwera</h2>
 <pre>cd server
 java -cp target/classes;../common/target/classes ServerMain</pre>
-<p>Serwer uruchamia RMI Registry na porcie <strong>5555</strong> i rejestruje trzy usługi. Automatycznie tworzone jest konto admina: <strong>login: admin</strong>, <strong>hasło: admin</strong>.</p>
-<p>Oczekiwany komunikat:</p>
-<pre>[Server] Konto admina utworzone (login: admin, hasło: admin)
+<p>Serwer uruchamia RMI Registry na porcie <strong>5555</strong> i rejestruje trzy usługi. Jeśli <code>storage/users.csv</code> istnieje, użytkownicy są z niego wczytani. W przeciwnym razie automatycznie tworzone jest konto admina: <strong>login: admin</strong>, <strong>hasło: admin</strong>.</p>
+<p>Oczekiwany komunikat (pierwsze uruchomienie):</p>
+<pre>[Storage] Załadowano 0 plików z CSV.
+[Storage] Załadowano 0 użytkowników z CSV.
+[Server] Konto admina utworzone (login: admin, hasło: admin)
+[Server] Serwer uruchomiony na porcie 5555</pre>
+<p>Oczekiwany komunikat (kolejne uruchomienia):</p>
+<pre>[Storage] Załadowano 3 plików z CSV.
+[Storage] Załadowano 2 użytkowników z CSV.
 [Server] Serwer uruchomiony na porcie 5555</pre>
 
 <h2>Krok 3 — Uruchomienie klienta</h2>
@@ -317,11 +354,12 @@ Hasło: admin
 
 === Menu ===
 1. Lista plików
-2. Pobierz plik
-3. Wyślij plik
-4. Usuń plik          (tylko ADMIN)
-5. Dodaj użytkownika  (tylko ADMIN)
-6. Usuń użytkownika   (tylko ADMIN)
+2. Szukaj pliku po nazwie
+3. Pobierz plik
+4. Wyślij plik
+5. Usuń plik          (tylko ADMIN)
+6. Dodaj użytkownika  (tylko ADMIN)
+7. Usuń użytkownika   (tylko ADMIN)
 0. Wyloguj</pre>
 
 <h2>Obsługa błędów — przykłady komunikatów</h2>
@@ -330,7 +368,9 @@ Hasło: admin
   <tr><td>Błędny login/hasło</td><td><code>[!] Błędny login lub hasło. Spróbuj ponownie.</code></td></tr>
   <tr><td>Pusta nazwa pliku</td><td><code>[!] Nazwa pliku nie może być pusta.</code></td></tr>
   <tr><td>Plik lokalny nie istnieje</td><td><code>[!] Plik nie istnieje: &lt;ścieżka&gt;</code></td></tr>
+  <tr><td>Plik przekracza 50 MB</td><td><code>[!] Plik przekracza limit 50 MB (rozmiar: X MB).</code></td></tr>
   <tr><td>Plik nie istnieje na serwerze</td><td><code>[BŁĄD] File not found: &lt;nazwa&gt;</code></td></tr>
+  <tr><td>Plik nie znaleziony (wyszukiwanie)</td><td><code>[!] Plik "nazwa" nie istnieje na serwerze.</code></td></tr>
   <tr><td>Brak uprawnień</td><td><code>[BŁĄD SERWERA] Brak uprawnień — wymagana rola ADMIN</code></td></tr>
   <tr><td>Serwer niedostępny</td><td><code>[BŁĄD] Nie można połączyć z serwerem</code> + exit</td></tr>
   <tr><td>Próba usunięcia konta admin</td><td><code>[!] Nie można usunąć konta administratora.</code></td></tr>
@@ -366,23 +406,57 @@ assert results.size() == 10;
 assert results.stream().allMatch(d -> d != null &amp;&amp; d.length &gt; 0);
 </pre>
 <p><strong>Oczekiwany wynik:</strong> Wszystkie 10 wątków otrzymuje identyczne, kompletne bajty pliku. Brak wyjątków.</p>
-<p><strong>Dlaczego działa:</strong> <code>readLock()</code> pozwala wielu wątkom jednocześnie trzymać blokadę odczytu — żaden nie blokuje pozostałych.</p>
+<p><strong>Dlaczego działa:</strong> Per-file <code>readLock()</code> pozwala wielu wątkom jednocześnie trzymać blokadę odczytu tego samego pliku — żaden nie blokuje pozostałych.</p>
 
-<h2>Test 2 — równoczesny upload i download (TOCTOU)</h2>
+<h2>Test 2 — równoczesny pobieranie i usuwanie (TOCTOU)</h2>
 <p><strong>Scenariusz:</strong> Wątek A pobiera plik, wątek B usuwa ten sam plik jednocześnie.</p>
 <p><strong>Bez ochrony (błędny kod):</strong> Możliwy scenariusz — A sprawdza <code>findFileByName</code> (plik istnieje), B wywołuje <code>deleteFile</code> (plik usunięty), A wywołuje <code>downloadFile</code> (RuntimeException — plik nie istnieje na dysku).</p>
-<p><strong>Z ochroną (<code>findAndDownload</code>):</strong> Operacja find+read odbywa się atomowo pod jedną blokadą odczytu. <code>deleteFile</code> czeka na blokadę zapisu — nie może wejść w sekcję krytyczną, dopóki download się nie zakończy. Wynik: albo A pobierze plik w całości, albo B usunie go i A dostanie czytelny błąd <code>"File not found"</code>.</p>
+<p><strong>Z ochroną (<code>findAndDownload</code> + per-file lock):</strong> Operacja find+read odbywa się atomowo pod per-file read lock. <code>deleteFile</code> próbuje uzyskać write lock na ten sam plik — musi poczekać, aż A skończy pobieranie. Wynik: albo A pobierze plik w całości, albo B usunie go przed A i A dostanie czytelny błąd <code>"File not found"</code>.</p>
 
-<h2>Test 3 — kolejkowanie zapisów</h2>
-<p><strong>Scenariusz:</strong> 5 wątków wgrywa różne pliki jednocześnie.</p>
-<p><strong>Wynik:</strong> Wątki ustawiają się w kolejce po <code>writeLock</code>. Każdy plik zapisywany atomowo (meta + bajty). Po zakończeniu wszystkich uploadów lista plików zawiera dokładnie 5 pozycji.</p>
+<h2>Test 3 — równoległe uploady różnych plików (per-file locking)</h2>
+<p><strong>Scenariusz:</strong> 5 wątków wgrywa jednocześnie 5 różnych plików.</p>
+<p><strong>Zachowanie z globalnym lockiem (poprzednia wersja):</strong> Wszystkie 5 wątków kolejkuje się na jednym write locku — efektywnie sekwencyjne.</p>
+<p><strong>Zachowanie z per-file lockiem (aktualna wersja):</strong> Każdy wątek trzyma write lock tylko swojego pliku — wszystkie 5 operacji zapisu na dysk wykonują się równolegle. Jedyna synchronizacja to <code>csvLock</code> przy zapisie metadanych (trzymany przez ułamek sekundy).</p>
+<pre>
+ExecutorService pool = Executors.newFixedThreadPool(5);
+CountDownLatch latch = new CountDownLatch(1);
+
+for (int i = 0; i &lt; 5; i++) {
+    final String name = "file_" + i + ".txt";
+    final byte[] data = ("content " + i).getBytes();
+    pool.submit(() -&gt; {
+        try {
+            latch.await();
+            fileService.uploadFile(name, data); // równoległe — różne locki
+        } catch (Exception e) { e.printStackTrace(); }
+    });
+}
+latch.countDown();
+pool.shutdown();
+pool.awaitTermination(30, TimeUnit.SECONDS);
+
+assert fileService.listFiles().size() == 5;
+</pre>
+<p><strong>Oczekiwany wynik:</strong> Lista zawiera dokładnie 5 plików. CSV zawiera 5 wpisów. Brak wyjątków.</p>
+
+<h2>Test 4 — persystencja po restarcie</h2>
+<p><strong>Scenariusz:</strong> Wgranie 3 plików i dodanie użytkownika, restart serwera, weryfikacja stanu.</p>
+<ol>
+  <li>Uruchom serwer, zaloguj się jako admin.</li>
+  <li>Wgraj 3 pliki, dodaj użytkownika <code>test</code>.</li>
+  <li>Zatrzymaj serwer (Ctrl+C).</li>
+  <li>Uruchom serwer ponownie.</li>
+  <li>Zaloguj się — opcja <code>1. Lista plików</code> powinna pokazać te same 3 pliki.</li>
+  <li>Zaloguj się jako <code>test</code> — logowanie powinno się powieść.</li>
+</ol>
+<p><strong>Oczekiwany wynik:</strong> Stan sprzed restartu w pełni odtworzony. Komunikaty startowe: <code>[Storage] Załadowano 3 plików z CSV.</code> i <code>[Storage] Załadowano 2 użytkowników z CSV.</code></p>
 
 <h2>Reakcja na restart serwera</h2>
 <table>
   <tr><th>Dane</th><th>Po restarcie serwera</th></tr>
   <tr><td>Pliki fizyczne (<code>storage/files/</code>)</td><td>✅ Zachowane na dysku</td></tr>
-  <tr><td>Metadane plików (in-memory)</td><td>❌ Utracone — serwer nie widzi starych plików</td></tr>
-  <tr><td>Konta użytkowników (in-memory)</td><td>❌ Utracone; konto admin odtwarzane automatycznie</td></tr>
+  <tr><td>Metadane plików (<code>storage/files_metadata.csv</code>)</td><td>✅ Odtwarzane z CSV przy starcie</td></tr>
+  <tr><td>Konta użytkowników (<code>storage/users.csv</code>)</td><td>✅ Odtwarzane z CSV przy starcie</td></tr>
   <tr><td>Sesje klientów</td><td>❌ Utracone; klienci otrzymują <code>RemoteException</code> i wracają do ekranu logowania</td></tr>
 </table>
 
