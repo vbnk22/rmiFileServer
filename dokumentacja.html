@@ -37,7 +37,7 @@
   <h1>Dokumentacja projektu zaliczeniowego</h1>
   <h1 style="font-size:18pt; color:#2a5298;">RMI File Server</h1>
   <p style="margin-top:30px;"><strong>Przedmiot:</strong> Programowanie Współbieżne i Rozproszone (2026)</p>
-  <p><strong>Autor:</strong> Mateusz Chudkowski</p>
+  <p><strong>Autorzy:</strong> Mateusz Chudkowski, Patryk Oleszek</p>
   <p style="margin-top:20px; color:#666;">Rozproszony serwer plików zaimplementowany w Java RMI<br>z mechanizmami programowania współbieżnego</p>
 </div>
 
@@ -45,17 +45,17 @@
 <h1>1. Metryczka projektu</h1>
 
 <p><strong>Tytuł programu:</strong> RMI File Server — Rozproszony Serwer Plików</p>
-<p><strong>Autorzy:</strong> Mateusz Chudkowski</p>
+<p><strong>Autorzy:</strong> Mateusz Chudkowski, Patryk Oleszek</p>
 <p><strong>Przedmiot:</strong> Programowanie Współbieżne i Rozproszone (2026)</p>
 
 <h2>Podział pracy</h2>
 <table>
   <tr><th>Zadanie</th><th>Wykonawca</th></tr>
-  <tr><td>Architektura RMI, interfejsy zdalne</td><td>Mateusz Chudkowski</td></tr>
-  <tr><td>Implementacja serwera (AuthService, FileService, AdminService)</td><td>Mateusz Chudkowski</td></tr>
+  <tr><td>Architektura RMI, interfejsy zdalne</td><td>Patryk Oleszek</td></tr>
+  <tr><td>Implementacja serwera (AuthService, FileService, AdminService)</td><td>Patryk Oleszek</td></tr>
   <tr><td>Repozytoria z synchronizacją (per-file ReadWriteLock, CopyOnWriteArrayList)</td><td>Mateusz Chudkowski</td></tr>
   <tr><td>Persystencja CSV (metadane plików, konta użytkowników)</td><td>Mateusz Chudkowski</td></tr>
-  <tr><td>Klient terminalowy (menu, upload, download, wyszukiwanie, obsługa błędów)</td><td>Mateusz Chudkowski</td></tr>
+  <tr><td>Klient terminalowy (menu, upload, download, wyszukiwanie, obsługa błędów)</td><td>Patryk Oleszek</td></tr>
   <tr><td>Testy współbieżności</td><td>Mateusz Chudkowski</td></tr>
   <tr><td>Dokumentacja</td><td>Mateusz Chudkowski</td></tr>
 </table>
@@ -336,6 +336,7 @@ java -cp target/classes;../common/target/classes ServerMain</pre>
 <p>Oczekiwany komunikat (kolejne uruchomienia):</p>
 <pre>[Storage] Załadowano 3 plików z CSV.
 [Storage] Załadowano 2 użytkowników z CSV.
+[Server] Konto admina już istnieje (login: admin, hasło: admin)
 [Server] Serwer uruchomiony na porcie 5555</pre>
 
 <h2>Krok 3 — Uruchomienie klienta</h2>
