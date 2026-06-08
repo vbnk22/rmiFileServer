@@ -26,10 +26,6 @@ public class ServerMain {
             System.out.println("[Server] Konto admina już istnieje (login: admin, hasło: admin)");
         }
 
-//        // Domyślny administrator
-//        userRepository.save(new UserDTO("admin", "admin", UserRole.ADMIN));
-//        System.out.println("[Server] Konto admina utworzone (login: admin, hasło: admin)");
-
         Naming.rebind("//localhost:5555/AuthService", authService);
         Naming.rebind("//localhost:5555/FileService",
                 new FileServiceImpl(fileRepository, authService, userRepository)); // przekazuje interfejsy
