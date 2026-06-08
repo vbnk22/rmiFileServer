@@ -18,9 +18,17 @@ public class ServerMain {
         FileRepositoryImpl fileRepository = new FileRepositoryImpl();
         AuthServiceImpl authService = new AuthServiceImpl(userRepository);
 
-        // Domyślny administrator
-        userRepository.save(new UserDTO("admin", "admin", UserRole.ADMIN));
-        System.out.println("[Server] Konto admina utworzone (login: admin, hasło: admin)");
+
+        try {
+            userRepository.save(new UserDTO("admin", "admin", UserRole.ADMIN));
+            System.out.println("[Server] Konto admina utworzone (login: admin, hasło: admin)");
+        } catch (IllegalArgumentException e) {
+            System.out.println("[Server] Konto admina już istnieje (login: admin, hasło: admin)");
+        }
+
+//        // Domyślny administrator
+//        userRepository.save(new UserDTO("admin", "admin", UserRole.ADMIN));
+//        System.out.println("[Server] Konto admina utworzone (login: admin, hasło: admin)");
 
         Naming.rebind("//localhost:5555/AuthService", authService);
         Naming.rebind("//localhost:5555/FileService",
